@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="ja" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>資本流出（キャピタル・フライト）動態シミュレーター＆数理モデル解説</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Hiragino Kaku Gothic ProN"', '"Noto Sans JP"', 'system-ui', '-apple-system', 'sans-serif'],
+            mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace']
+          }
+        }
+      }
+    }
+  </script>
+  <!-- KaTeX for Math Rendering -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"
+    onload="renderMathInElement(document.body, { delimiters: [{left: '$$', right: '$$', display: true}, {left: '$', right: '$', display: false}] });"></script>
+  <style>
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      background: transparent;
+    }
+    input[type="range"]::-webkit-slider-runnable-track {
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.35);
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #3b82f6;
+      cursor: pointer;
+      margin-top: -6px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+      transition: transform 0.1s ease;
+    }
+    input[type="range"]::-webkit-slider-thumb:hover {
+      transform: scale(1.12);
+    }
+    .katex-display {
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding: 0.5rem 0;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 antialiased min-h-screen transition-colors duration-200">
+
+  <!-- Navbar / Header -->
+  <header class="sticky top-0 z-30 backdrop-blur-md bg-white/80 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800">
+    <div class="max-w-5xl mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <span class="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-600 text-white font-bold text-sm shadow-sm">FX</span>
+        <div>
+          <h1 class="font-bold text-base sm:text-lg leading-tight">資本流出（キャピタル・フライト）動態シミュレーター</h1>
+          <p class="text-xs text-slate-500 dark:text-slate-400">国際マクロ経済学（金利平価＋クルーグマン通貨危機モデル）に基づく24ヶ月シミュレーション</p>
+        </div>
+      </div>
+      <button onclick="toggleTheme()" id="themeBtn" class="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition">
+        ライト/ダーク切替
+      </button>
+    </div>
+  </header>
+
+  <main class="max-w-5xl mx-auto px-4 sm:px-6 py-8 space-y-10">
+
+    <!-- Section 1: Interactive Simulator Card -->
+    <section class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 sm:p-7 shadow-sm">
+      <!-- Scenario Presets -->
+      <div class="flex flex-wrap items-center justify-between gap-3 pb-4 mb-6 border-b border-slate-200 dark:border-slate-800">
+        <div>
+          <span class="text-xs font-semibold uppercase tracking-wider text-blue-600 dark:text-blue-400">Interactive Simulation</span>
+          <h2 class="text-lg font-bold mt-0.5">シナリオ選択＆パラメータ調整</h2>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <button onclick="applyPreset('gradual')" id="btn-gradual" class="px-3 py-1.5 text-xs rounded-lg border font-medium transition">
+            ① 緩やかな流出（金利差・構造赤字型）
+          </button>
+          <button onclick="applyPreset('crisis')" id="btn-crisis" class="px-3 py-1.5 text-xs rounded-lg border font-medium transition">
+            ② 通貨危機（信認崩壊・外貨準備枯渇型）
+          </button>
+          <button onclick="applyPreset('defense')" id="btn-defense" class="px-3 py-1.5 text-xs rounded-lg border font-medium transition">
+            ③ 中銀防衛（迅速な利上げ＋適度な介入）
+          </button>
+        </div>
+      </div>
+
+      <!-- Simulator Grid -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        <!-- Left Column: Sliders (5 cols) -->
+        <div class="lg:col-span-5 space-y-4 bg-slate-50 dark:bg-slate-950/60 p-4 rounded-xl border border-slate-200/80 dark:border-slate-800/80">
+          <div>
+            <div class="flex justify-between text-xs mb-1.5">
+              <label for="rateDiff" class="font-medium text-slate-700 dark:text-slate-300">内外金利差 (外国金利 − 自国金利)</label>
+              <span id="val-rateDiff" class="font-mono font-bold text-blue-600 dark:text-blue-400">+3.50%</span>
+            </div>
+            <input type="range" id="rateDiff" min="-1" max="8" step="0.25" value="3.5" oninput="updateSim()" class="w-full">
+            <div class="flex justify-between text-xs text-slate-400 mt-0.5"><span>-1.0%</span><span>+3.5%</span><span>+8.0%</span></div>
+          </div>
+
+          <div>
+            <div class="flex justify-between text-xs mb-1.5">
+              <label for="structOut" class="font-medium text-slate-700 dark:text-slate-300">構造的流出 (デジタル/貿易赤字・対外投資)</label>
+              <span id="val-structOut" class="font-mono font-bold text-blue-600 dark:text-blue-400">2.0% /年</span>
+            </div>
+            <input type="range" id="structOut" min="0" max="5" step="0.2" value="2.0" oninput="updateSim()" class="w-full">
+            <div class="flex justify-between text-xs text-slate-400 mt-0.5"><span>0% (均衡)</span><span>対GDP比/年</span><span>5.0%</span></div>
+          </div>
+
+          <div>
+            <div class="flex justify-between text-xs mb-1.5">
+              <label for="riskShock" class="font-medium text-slate-700 dark:text-slate-300">財政・通貨への信認不安 (リスクプレミアム)</label>
+              <span id="val-riskShock" class="font-mono font-bold text-blue-600 dark:text-blue-400">1.00%</span>
+            </div>
+            <input type="range" id="riskShock" min="0" max="8" step="0.25" value="1.0" oninput="updateSim()" class="w-full">
+            <div class="flex justify-between text-xs text-slate-400 mt-0.5"><span>0% (安定)</span><span>4.0%</span><span>8.0% (危機)</span></div>
+          </div>
+
+          <div>
+            <div class="flex justify-between text-xs mb-1.5">
+              <label for="intervention" class="font-medium text-slate-700 dark:text-slate-300">為替介入強度 (外貨準備の取り崩し)</label>
+              <span id="val-intervention" class="font-mono font-bold text-blue-600 dark:text-blue-400">15%</span>
+            </div>
+            <input type="range" id="intervention" min="0" max="100" step="5" value="15" oninput="updateSim()" class="w-full">
+            <div class="flex justify-between text-xs text-slate-400 mt-0.5"><span>0% (放置)</span><span>50%</span><span>100% (全面介入)</span></div>
+          </div>
+
+          <div>
+            <div class="flex justify-between text-xs mb-1.5">
+              <label for="hikeResp" class="font-medium text-slate-700 dark:text-slate-300">中央銀行の防衛利上げ反応度</label>
+              <span id="val-hikeResp" class="font-mono font-bold text-blue-600 dark:text-blue-400">20%</span>
+            </div>
+            <input type="range" id="hikeResp" min="0" max="100" step="5" value="20" oninput="updateSim()" class="w-full">
+            <div class="flex justify-between text-xs text-slate-400 mt-0.5"><span>0% (緩和維持)</span><span>50%</span><span>100% (積極利上げ)</span></div>
+          </div>
+
+          <!-- Diagnosis Box -->
+          <div class="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-1.5">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-slate-500 dark:text-slate-400">24ヶ月後の診断ステータス</span>
+              <span id="regimeLabel" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400">慢性的な資金流出</span>
+            </div>
+            <p id="regimeDesc" class="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              金利差と構造的赤字により緩やかな資本流出が継続し、通貨安と輸入インフレがじわじわ進行します。
+            </p>
+          </div>
+        </div>
+
+        <!-- Right Column: KPIs & Chart (7 cols) -->
+        <div class="lg:col-span-7 space-y-4">
+          <!-- 4 KPI Cards -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div class="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60">
+              <div class="text-xs text-slate-500 dark:text-slate-400">24ヶ月後為替レート</div>
+              <div id="kpi-fx" class="text-xl font-bold font-mono mt-1 text-red-500">172.4</div>
+              <div id="kpi-fx-sub" class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">初期150比 +14.9%</div>
+            </div>
+            <div class="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60">
+              <div class="text-xs text-slate-500 dark:text-slate-400">累積資本流出額</div>
+              <div id="kpi-outflow" class="text-xl font-bold font-mono mt-1 text-amber-500">8.4%</div>
+              <div class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">対GDP比 24ヶ月累計</div>
+            </div>
+            <div class="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60">
+              <div class="text-xs text-slate-500 dark:text-slate-400">外貨準備残高</div>
+              <div id="kpi-reserves" class="text-xl font-bold font-mono mt-1 text-blue-500">82.0%</div>
+              <div id="kpi-res-sub" class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">健全圏 (&gt;30%)</div>
+            </div>
+            <div class="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60">
+              <div class="text-xs text-slate-500 dark:text-slate-400">国内インフレ率</div>
+              <div id="kpi-inflation" class="text-xl font-bold font-mono mt-1">3.8%</div>
+              <div id="kpi-rate-sub" class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">実効金利差: 2.8%</div>
+            </div>
+          </div>
+
+          <!-- Canvas Chart Card -->
+          <div class="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60">
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-3 text-xs">
+              <span class="font-semibold text-slate-700 dark:text-slate-200">24ヶ月間の動態推移（%変化）</span>
+              <div class="flex flex-wrap items-center gap-4">
+                <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full inline-block bg-red-500"></span>為替減価率 (%)</span>
+                <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full inline-block bg-blue-500"></span>外貨準備の減少幅 (%)</span>
+                <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-full inline-block bg-amber-500"></span>累積資本流出 (対GDP%)</span>
+              </div>
+            </div>
+            <div class="relative">
+              <canvas id="simChart" class="w-full h-[260px] block"></canvas>
+            </div>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-2">
+              ※ 外貨準備の減少幅（青線）が70%を超え、残高が30%未満になると「投機筋アタック領域（赤背景）」に入り、非線形な通貨暴落が発生します。
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section 2: Conceptual Overview -->
+    <section class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-3">
+        <h3 class="text-base font-bold flex items-center gap-2">
+          <span class="w-2 h-5 rounded bg-blue-600 inline-block"></span>
+          資本流出（キャピタル・フライト）の主な原因
+        </h3>
+        <ul class="space-y-2.5 text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+          <li><strong class="text-slate-900 dark:text-slate-100">1. 内外金利差の拡大:</strong> 自国の実質金利が低く他国の金利が高い場合、より高い利回りを求めて預金や債券投資が海外へ移動します。</li>
+          <li><strong class="text-slate-900 dark:text-slate-100">2. 構造的な資金流出:</strong> 海外ITサービスへの支払い（デジタル赤字）や資源輸入、家計の継続的な外貨建て投資など、実需に基づく定常的な流出です。</li>
+          <li><strong class="text-slate-900 dark:text-slate-100">3. 財政・通貨への信認不安:</strong> 財政赤字の拡大やインフレ放置への懸念が高まると、資産防衛のために自国通貨建て資産から外貨への逃避が加速します。</li>
+        </ul>
+      </div>
+
+      <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm space-y-3">
+        <h3 class="text-base font-bold flex items-center gap-2">
+          <span class="w-2 h-5 rounded bg-red-500 inline-block"></span>
+          経済への主な影響とスパイラル構造
+        </h3>
+        <ul class="space-y-2.5 text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+          <li><strong class="text-slate-900 dark:text-slate-100">1. 自国通貨の下落と輸入インフレ:</strong> 自国通貨売り・外貨買いにより通貨安が進行し、エネルギーや食料などの輸入物価上昇を通じて国内インフレを押し上げます。</li>
+          <li><strong class="text-slate-900 dark:text-slate-100">2. 自己実現的な通貨安期待:</strong> 「通貨が下がったから今のうちに外貨へ逃げる」という行動がさらなる通貨安を呼ぶフィードバックループを生みます。</li>
+          <li><strong class="text-slate-900 dark:text-slate-100">3. 外貨準備の枯渇と投機的アタック:</strong> 金利を上げずに為替介入（外貨準備の取り崩し）だけで通貨を防衛しようとすると、外貨準備が減った段階で投機筋の売り浴びせを招きます。</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- Section 3: Mathematical Model Explanation -->
+    <section class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 sm:p-8 shadow-sm space-y-6">
+      <div class="border-b border-slate-200 dark:border-slate-800 pb-4">
+        <span class="text-xs font-semibold uppercase tracking-wider text-blue-600 dark:text-blue-400">Mathematical Formulation</span>
+        <h2 class="text-xl font-bold mt-1">シミュレーターの数理モデル解説</h2>
+        <p class="text-sm text-slate-600 dark:text-slate-400 mt-1">
+          本シミュレーターは、国際マクロ経済学における<strong>カバーなし金利平価（UIP）</strong>の考え方と、ポール・クルーグマンらが提唱した<strong>通貨危機モデル（外貨準備の閾値と投機的アタック）</strong>を組み合わせた月次（$t = 1 \dots 24$）の非線形フィードバックモデルです。
+        </p>
+      </div>
+
+      <!-- Step 1 -->
+      <div class="space-y-2">
+        <h3 class="text-base font-bold text-slate-900 dark:text-slate-100">① 月次の資本流出量 $O_t$（対GDP比 %）</h3>
+        <p class="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+          各月 $t$ における資本流出量 $O_t$ は、「金利差要因」「構造的流出」「信認リスク×危機増幅」「前月の通貨安によるモメンタム（スパイラル要因）」の4項の和として算出されます。
+        </p>
+        <div class="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-sm">
+          $$O_t = \underbrace{0.065 \cdot \max(0, \Delta r_t)}_{\text{① 金利差要因}} + \underbrace{\frac{S}{12}}_{\text{② 構造的流出}} + \underbrace{0.085 \cdot \rho \cdot M_t}_{\text{③ 信認リスク×危機増幅}} + \underbrace{0.35 \cdot \Delta e_{t-1} \left(1 + \frac{\rho}{6}\right)}_{\text{④ 通貨安スパイラル}}$$
+        </div>
+        <ul class="text-xs sm:text-sm text-slate-600 dark:text-slate-300 space-y-1.5 list-disc list-inside pl-1">
+          <li>$\Delta r_t$: 実効的な内外金利差（初期金利差から中央銀行の防衛利上げ分 $\text{Hike}_t$ を差し引いた値）</li>
+          <li>$S$: 年間の構造的資金流出率（対GDP比 %/年）</li>
+          <li>$\rho$: 財政や通貨に対する信認不安ショック（リスクプレミアム）</li>
+          <li>$M_t$: 外貨準備残高 $R_t$ が防衛ライン（$30\%$）を下回った際に発動する<strong>投機的アタック倍率</strong>：
+            $$M_t = \begin{cases} 1.0 & (R_t \ge 30\%) \\ 1.8 + \dfrac{30 - R_t}{15} & (R_t < 30\%) \end{cases}$$
+          </li>
+        </ul>
+      </div>
+
+      <!-- Step 2 -->
+      <div class="space-y-2 pt-2">
+        <h3 class="text-base font-bold text-slate-900 dark:text-slate-100">② 為替介入と外貨準備高 $R_t$ の動態</h3>
+        <p class="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+          中央銀行が介入強度 $\alpha \in [0, 1]$ で資本流出を吸収しようとすると、吸収量 $I_t$ に応じて外貨準備 $R_t$（初期値 $100\%$）が減少します。外貨準備が減るほど1ヶ月あたりに動員できる介入上限も縮小します。
+        </p>
+        <div class="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-sm">
+          $$I_t = \min(\alpha \cdot O_t, \; 0.12 R_{t-1}), \qquad R_{t} = \max(0, \; R_{t-1} - 3.2 I_t)$$
+        </div>
+      </div>
+
+      <!-- Step 3 -->
+      <div class="space-y-2 pt-2">
+        <h3 class="text-base font-bold text-slate-900 dark:text-slate-100">③ 為替レート $E_t$・国内インフレ率 $\pi_t$・防衛利上げの相互作用</h3>
+        <p class="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+          為替介入で吸収しきれなかった純流出圧力 $(O_t - 0.85 I_t)$ が為替レート $E_t$（初期値 $150.0$）を減価させ、累積の通貨安率が輸入物価を通じて国内インフレ率 $\pi_t$ へと波及（パススルー）します。また、中銀の防衛利上げ反応度 $\beta \in [0, 1]$ が高い場合は、インフレと通貨安に応じて利上げ $\text{Hike}_t$ が行われ、金利差 $\Delta r_t$ を縮小させます。
+        </p>
+        <div class="p-4 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-sm">
+          $$\Delta e_t (\%) = 1.65 (O_t - 0.85 I_t) - 0.12 \cdot \text{Hike}_t, \qquad E_t = E_{t-1} \left(1 + \frac{\Delta e_t}{100}\right)$$
+          $$\pi_t = 2.0\% + 0.14 \cdot \left(\frac{E_t - 150}{150} \times 100\right) + 0.15 \rho$$
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="max-w-5xl mx-auto px-4 sm:px-6 py-8 border-t border-slate-200 dark:border-slate-800 text-center text-xs text-slate-500">
+    資本流出（キャピタル・フライト）動態シミュレーター &amp; 数理モデル解説
+  </footer>
+
+  <script>
+    const presets = {
+      gradual: { rateDiff: 3.5, structOut: 2.0, riskShock: 1.0, intervention: 15, hikeResp: 20 },
+      crisis:  { rateDiff: 4.5, structOut: 2.6, riskShock: 5.5, intervention: 75, hikeResp: 10 },
+      defense: { rateDiff: 3.5, structOut: 1.8, riskShock: 2.5, intervention: 45, hikeResp: 80 }
+    };
+    let activePreset = 'gradual';
+
+    function toggleTheme() {
+      document.documentElement.classList.toggle('dark');
+      updateSim();
+    }
+
+    function updatePresetButtons(selected) {
+      activePreset = selected;
+      ['gradual', 'crisis', 'defense'].forEach(k => {
+        const btn = document.getElementById('btn-' + k);
+        if (k === selected) {
+          btn.className = "px-3 py-1.5 text-xs rounded-lg border border-blue-600 bg-blue-600 text-white font-semibold shadow-sm transition";
+        } else {
+          btn.className = "px-3 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 font-medium transition";
+        }
+      });
+    }
+
+    function applyPreset(name) {
+      const p = presets[name];
+      document.getElementById('rateDiff').value = p.rateDiff;
+      document.getElementById('structOut').value = p.structOut;
+      document.getElementById('riskShock').value = p.riskShock;
+      document.getElementById('intervention').value = p.intervention;
+      document.getElementById('hikeResp').value = p.hikeResp;
+      updatePresetButtons(name);
+      updateSim();
+    }
+
+    function runModel(params) {
+      const months = 24;
+      let fx = 150.0;
+      let reserves = 100.0;
+      let cumOutflow = 0.0;
+      let inflation = 2.0;
+      let effectiveRateDiff = params.rateDiff;
+
+      const series = {
+        fxDeprec: [0],
+        resLoss: [0],
+        cumOutflow: [0],
+        reservesRaw: [100],
+        fxRaw: [150],
+        attackMonth: null
+      };
+
+      let prevFxChange = 0;
+
+      for (let m = 1; m <= months; m++) {
+        const cbHike = (params.hikeResp / 100) * Math.max(0, (inflation - 2.0) * 0.45 + (fx - 150) / 150 * 4.0);
+        effectiveRateDiff = Math.max(-2.0, params.rateDiff - cbHike);
+
+        let panicMultiplier = 1.0;
+        if (reserves < 30.0) {
+          panicMultiplier = 1.8 + (30.0 - reserves) / 15.0;
+          if (!series.attackMonth) series.attackMonth = m;
+        }
+
+        const momentumOutflow = Math.max(0, prevFxChange * 0.35) * (1 + params.riskShock / 6.0);
+        const rateDriven = Math.max(0, effectiveRateDiff) * 0.065;
+        const structDriven = params.structOut / 12.0;
+        const riskDriven = (params.riskShock * 0.085) * panicMultiplier;
+
+        const monthlyOutflow = Math.max(0, (rateDriven + structDriven + riskDriven + momentumOutflow));
+        cumOutflow += monthlyOutflow;
+
+        const desiredIntervention = monthlyOutflow * (params.intervention / 100.0);
+        const maxPossibleIntervention = Math.max(0, reserves * 0.12);
+        const actualIntervention = Math.min(desiredIntervention, maxPossibleIntervention);
+
+        reserves = Math.max(0, reserves - actualIntervention * 3.2);
+
+        const netPressure = monthlyOutflow - actualIntervention * 0.85;
+        const monthlyPctChange = (netPressure * 1.65) - (cbHike * 0.12);
+        prevFxChange = Math.max(0, monthlyPctChange);
+
+        fx = fx * (1 + monthlyPctChange / 100.0);
+
+        const totalDeprecPct = ((fx - 150.0) / 150.0) * 100.0;
+        inflation = 2.0 + Math.max(0, totalDeprecPct * 0.14) + (params.riskShock * 0.15);
+
+        series.fxDeprec.push(Math.max(-15, totalDeprecPct));
+        series.resLoss.push(100.0 - reserves);
+        series.cumOutflow.push(cumOutflow);
+        series.reservesRaw.push(reserves);
+        series.fxRaw.push(fx);
+      }
+
+      return {
+        finalFx: fx,
+        finalDeprec: ((fx - 150.0) / 150.0) * 100.0,
+        finalOutflow: cumOutflow,
+        finalReserves: reserves,
+        finalInflation: inflation,
+        finalEffectiveRateDiff: effectiveRateDiff,
+        series
+      };
+    }
+
+    function drawChart(result) {
+      const canvas = document.getElementById('simChart');
+      const ctx = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.scale(dpr, dpr);
+
+      const w = rect.width;
+      const h = rect.height;
+      ctx.clearRect(0, 0, w, h);
+
+      const isDark = document.documentElement.classList.contains('dark');
+      const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.08)';
+      const textColor = isDark ? 'rgba(255,255,255,0.6)' : 'rgba(15,23,42,0.6)';
+
+      const pad = { top: 16, right: 18, bottom: 26, left: 42 };
+      const plotW = w - pad.left - pad.right;
+      const plotH = h - pad.top - pad.bottom;
+
+      const s = result.series;
+      const allVals = [...s.fxDeprec, ...s.resLoss, ...s.cumOutflow, 30];
+      const maxVal = Math.ceil(Math.max(...allVals) / 10) * 10;
+      const minVal = Math.min(0, Math.floor(Math.min(...s.fxDeprec) / 5) * 5);
+      const range = Math.max(10, maxVal - minVal);
+
+      const toX = (m) => pad.left + (m / 24) * plotW;
+      const toY = (v) => pad.top + plotH - ((v - minVal) / range) * plotH;
+
+      ctx.strokeStyle = gridColor;
+      ctx.lineWidth = 1;
+      ctx.font = '12px sans-serif';
+      ctx.fillStyle = textColor;
+      ctx.textAlign = 'right';
+
+      const steps = 5;
+      for (let i = 0; i <= steps; i++) {
+        const val = minVal + (range * i) / steps;
+        const y = toY(val);
+        ctx.beginPath();
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(w - pad.right, y);
+        ctx.stroke();
+        ctx.fillText(Math.round(val) + '%', pad.left - 6, y + 4);
+      }
+
+      ctx.textAlign = 'center';
+      [0, 4, 8, 12, 16, 20, 24].forEach(m => {
+        const x = toX(m);
+        ctx.fillText(m + 'ヶ月', x, h - 6);
+      });
+
+      if (s.attackMonth) {
+        const ax = toX(s.attackMonth);
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.12)';
+        ctx.fillRect(ax, pad.top, (w - pad.right) - ax, plotH);
+        ctx.strokeStyle = 'rgba(239, 68, 68, 0.65)';
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(ax, pad.top);
+        ctx.lineTo(ax, pad.top + plotH);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#ef4444';
+        ctx.textAlign = 'left';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.fillText('⚡ 投機筋アタック発生 (' + s.attackMonth + 'ヶ月目〜)', ax + 6, pad.top + 16);
+      }
+
+      function plotLine(data, color, width = 2.5) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        data.forEach((v, idx) => {
+          const x = toX(idx);
+          const y = toY(v);
+          if (idx === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+      }
+
+      plotLine(s.resLoss, '#3b82f6', 2.2);
+      plotLine(s.cumOutflow, '#f59e0b', 2.2);
+      plotLine(s.fxDeprec, '#ef4444', 2.8);
+    }
+
+    function updateSim() {
+      const params = {
+        rateDiff: parseFloat(document.getElementById('rateDiff').value),
+        structOut: parseFloat(document.getElementById('structOut').value),
+        riskShock: parseFloat(document.getElementById('riskShock').value),
+        intervention: parseFloat(document.getElementById('intervention').value),
+        hikeResp: parseFloat(document.getElementById('hikeResp').value)
+      };
+
+      document.getElementById('val-rateDiff').textContent = (params.rateDiff >= 0 ? '+' : '') + params.rateDiff.toFixed(2) + '%';
+      document.getElementById('val-structOut').textContent = params.structOut.toFixed(1) + '% /年';
+      document.getElementById('val-riskShock').textContent = params.riskShock.toFixed(2) + '%';
+      document.getElementById('val-intervention').textContent = params.intervention + '%';
+      document.getElementById('val-hikeResp').textContent = params.hikeResp + '%';
+
+      const res = runModel(params);
+
+      document.getElementById('kpi-fx').textContent = res.finalFx.toFixed(1);
+      const depSign = res.finalDeprec >= 0 ? '+' : '';
+      document.getElementById('kpi-fx-sub').textContent = `初期150比 ${depSign}${res.finalDeprec.toFixed(1)}%`;
+      document.getElementById('kpi-outflow').textContent = res.finalOutflow.toFixed(1) + '%';
+      document.getElementById('kpi-reserves').textContent = res.finalReserves.toFixed(1) + '%';
+      document.getElementById('kpi-res-sub').textContent = res.finalReserves < 30 ? '危険水準 (<30%)' : '健全圏 (>30%)';
+      document.getElementById('kpi-inflation').textContent = res.finalInflation.toFixed(1) + '%';
+      document.getElementById('kpi-rate-sub').textContent = `24ヶ月後金利差: ${res.finalEffectiveRateDiff.toFixed(1)}%`;
+
+      const labelEl = document.getElementById('regimeLabel');
+      const descEl = document.getElementById('regimeDesc');
+
+      if (res.series.attackMonth) {
+        labelEl.textContent = '通貨危機・キャピタルフライト';
+        labelEl.className = 'text-xs font-bold px-2.5 py-0.5 rounded-full bg-red-500/15 text-red-600 dark:text-red-400';
+        descEl.textContent = `${res.series.attackMonth}ヶ月目に外貨準備が防衛ライン(30%)を割り込み、投機的アタックによる非線形な通貨暴落が発生しています。`;
+      } else if (res.finalDeprec > 25) {
+        labelEl.textContent = '悪性スパイラル進行';
+        labelEl.className = 'text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400';
+        descEl.textContent = '通貨安期待がさらなる資本流出を呼ぶ自己強化ループに入り、国内インフレが大きく加速しています。';
+      } else if (res.finalDeprec < 8 && params.hikeResp >= 50) {
+        labelEl.textContent = '防衛成功・均衡回復';
+        labelEl.className = 'text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400';
+        descEl.textContent = '迅速な利上げによる金利差縮小と適度な為替介入により、外貨準備を維持したまま資本流出を抑制できています。';
+      } else {
+        labelEl.textContent = '慢性的な資金流出';
+        labelEl.className = 'text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-500/15 text-blue-600 dark:text-blue-400';
+        descEl.textContent = '金利差と構造的赤字により緩やかな資本流出が継続し、通貨安と輸入インフレがじわじわ進行します。';
+      }
+
+      drawChart(res);
+    }
+
+    window.addEventListener('resize', updateSim);
+    window.addEventListener('DOMContentLoaded', () => {
+      updatePresetButtons('gradual');
+      updateSim();
+    });
+  </script>
+</body>
+</html>
